@@ -10,6 +10,11 @@ class HidAndroid extends HidPlatform {
 
   static const MethodChannel _channel = MethodChannel('hid4flutter');
 
+  // Expose a safe static helper to invoke platform methods from other classes
+  static Future<T?> invokeMethod<T>(String method, [dynamic arguments]) {
+    return _channel.invokeMethod<T>(method, arguments);
+  }
+
   @override
   Future<List<HidDevice>> getDevices({
     int? vendorId,
@@ -24,7 +29,8 @@ class HidAndroid extends HidPlatform {
       if (usage != null) 'usage': usage,
     };
 
-    final List<dynamic> result = await _channel.invokeMethod('getDevices', args);
+    final List<dynamic> result =
+        await _channel.invokeMethod('getDevices', args);
 
     return result
         .whereType<Map<dynamic, dynamic>>()

@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:hid4flutter/src/hid_device.dart';
 import 'package:hid4flutter/src/hid_exception.dart';
+import 'package:hid4flutter/src/android/hid_android.dart';
 
 class HidDeviceAndroid extends HidDevice {
   HidDeviceAndroid({
@@ -65,8 +67,26 @@ class HidDeviceAndroid extends HidDevice {
 
   @override
   Future<void> open() async {
-    // Not implemented yet
-    throw HidException('open() not implemented on Android yet.');
+    if (_isOpen) {
+      throw StateError('Device is already open');
+    }
+
+    try {
+      await HidAndroid.invokeMethod('openDevice', {
+        'id': id,
+        'path': path,
+        'interfaceNumber': interfaceNumber,
+      });
+      _isOpen = true;
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to open HID device';
+      throw HidException('${e.code}: $message');
+    } finally {
+      // Connection is currently closed immediately, as close() is not implemented yet
+      _isOpen = false;
+    }
   }
 
   @override
@@ -97,7 +117,8 @@ class HidDeviceAndroid extends HidDevice {
   }
 
   @override
-  Future<Uint8List> receiveFeatureReport(int reportId, {int bufferSize = 1024}) async {
+  Future<Uint8List> receiveFeatureReport(int reportId,
+      {int bufferSize = 1024}) async {
     throw StateError('Device is not open');
   }
 

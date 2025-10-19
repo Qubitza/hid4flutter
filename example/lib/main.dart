@@ -96,6 +96,30 @@ class DeviceListScreenState extends State<DeviceListScreen> {
                 Text('Bus Type: ${device.busType}'),
               ],
             ),
+            trailing: device.isOpen
+                ? const Icon(Icons.usb, color: Colors.green)
+                : const Icon(Icons.usb, color: Colors.grey),
+            onTap: () async {
+              try {
+                await device.open();
+                if (mounted) setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Opened ${device.productName.isNotEmpty ? device.productName : 'device $index'}',
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to open device: $e'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
           ),
         );
       },
