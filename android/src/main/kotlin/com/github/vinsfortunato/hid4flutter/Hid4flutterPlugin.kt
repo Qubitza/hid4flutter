@@ -9,6 +9,7 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.hardware.usb.UsbDeviceConnection
 import android.os.Build
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -24,6 +25,15 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var applicationContext: Context
 
     private val ACTION_USB_PERMISSION by lazy { "${applicationContext.packageName}.USB_PERMISSION" }
+
+    private data class OpenHandle(
+        val connection: UsbDeviceConnection,
+        val intf: UsbInterface
+    )
+
+    private val openHandles = HashMap<String, OpenHandle>()
+
+    private fun keyFor(path: String, interfaceNumber: Int): String = "$" + path + "#" + interfaceNumber
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = flutterPluginBinding.applicationContext
@@ -54,6 +64,21 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
                     result.error("PERMISSION_DENIED", se.message ?: "USB permission denied", null)
                 } catch (e: Exception) {
                     result.error("OPEN_FAILED", e.message ?: "Failed to open HID device", null)
+                }
+            }
+
+            "closeDevice" -> {
+                val path = call.argument<String>("path")
+                val interfaceNumber = call.argument<Int>("interfaceNumber")
+                if (path == null || interfaceNumber == null) {
+                    result.error("ARGUMENT_ERROR", "Missing 'path' or 'interfaceNumber'", null)
+                    return
+                }
+                try {
+                    closeHidDevice(path, interfaceNumber)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("CLOSE_FAILED", e.message ?: "Failed to close HID device", null)
                 }
             }
 
@@ -177,9 +202,14 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     private fun openHidDevice(path: String, interfaceNumber: Int) {
+        val key = keyFor(path, interfaceNumber)
+        if (openHandles.containsKey(key)) {
+            return
+        }
+
         val manager = usbManager()
-        val device =
-            findDeviceByPath(path) ?: throw IllegalArgumentException("Device not found: $path")
+        val device = findDeviceByPath(path)
+            ?: throw IllegalArgumentException("Device not found: $path")
 
         if (!manager.hasPermission(device)) {
             val ok = requestUsbPermission(device)
@@ -196,15 +226,25 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
         val connection = manager.openDevice(device)
             ?: throw IllegalStateException("Failed to open device: $path")
 
-        try {
-            val claimed = connection.claimInterface(intf, true)
-            if (!claimed) {
-                throw IllegalStateException("Failed to claim interface: $interfaceNumber")
-            }
-            // For now we just verify we can claim and then release/close immediately.
-            connection.releaseInterface(intf)
-        } finally {
+        val claimed = connection.claimInterface(intf, true)
+        if (!claimed) {
             connection.close()
+            throw IllegalStateException("Failed to claim interface: $interfaceNumber")
+        }
+
+        openHandles[key] = OpenHandle(connection, intf)
+    }
+
+    private fun closeHidDevice(path: String, interfaceNumber: Int) {
+        val key = keyFor(path, interfaceNumber)
+        val handle = openHandles.remove(key) ?: return
+        try {
+            handle.connection.releaseInterface(handle.intf)
+        } catch (_: Exception) {
+        }
+        try {
+            handle.connection.close()
+        } catch (_: Exception) {
         }
     }
 

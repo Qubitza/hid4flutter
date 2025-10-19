@@ -83,9 +83,6 @@ class HidDeviceAndroid extends HidDevice {
           ? e.message!
           : 'Failed to open HID device';
       throw HidException('${e.code}: $message');
-    } finally {
-      // Connection is currently closed immediately, as close() is not implemented yet
-      _isOpen = false;
     }
   }
 
@@ -94,11 +91,22 @@ class HidDeviceAndroid extends HidDevice {
 
   @override
   Future<void> close() async {
-    // Not implemented yet
     if (!_isOpen) {
       throw StateError('Device is not open');
     }
-    _isOpen = false;
+    try {
+      await HidAndroid.invokeMethod('closeDevice', {
+        'id': id,
+        'path': path,
+        'interfaceNumber': interfaceNumber,
+      });
+      _isOpen = false;
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to close HID device';
+      throw HidException('${e.code}: $message');
+    }
   }
 
   @override

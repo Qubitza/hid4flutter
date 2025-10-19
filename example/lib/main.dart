@@ -101,20 +101,33 @@ class DeviceListScreenState extends State<DeviceListScreen> {
                 : const Icon(Icons.usb, color: Colors.grey),
             onTap: () async {
               try {
-                await device.open();
-                if (mounted) setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Opened ${device.productName.isNotEmpty ? device.productName : 'device $index'}',
+                if (!device.isOpen) {
+                  await device.open();
+                  if (mounted) setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Opened ${device.productName.isNotEmpty ? device.productName : 'device $index'}',
+                      ),
+                      duration: const Duration(seconds: 2),
                     ),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
+                  );
+                } else {
+                  await device.close();
+                  if (mounted) setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Closed ${device.productName.isNotEmpty ? device.productName : 'device $index'}',
+                      ),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Failed to open device: $e'),
+                    content: Text('${device.isOpen ? 'Failed to close' : 'Failed to open'} device: $e'),
                     duration: const Duration(seconds: 3),
                   ),
                 );
