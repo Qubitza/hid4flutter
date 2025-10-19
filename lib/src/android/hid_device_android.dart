@@ -121,8 +121,25 @@ class HidDeviceAndroid extends HidDevice {
 
   @override
   Future<void> sendReport(Uint8List data, {int reportId = 0x00}) async {
-    throw StateError('Device is not open');
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+    try {
+      await HidAndroid.invokeMethod('sendReport', {
+        'id': id,
+        'path': path,
+        'interfaceNumber': interfaceNumber,
+        'reportId': reportId,
+        'data': data,
+      });
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to send HID report';
+      throw HidException('${e.code}: $message');
+    }
   }
+
 
   @override
   Future<Uint8List> receiveFeatureReport(int reportId,

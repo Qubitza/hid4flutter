@@ -33,7 +33,8 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
 
     private val openHandles = HashMap<String, OpenHandle>()
 
-    private fun keyFor(path: String, interfaceNumber: Int): String = "$" + path + "#" + interfaceNumber
+    private fun keyFor(path: String, interfaceNumber: Int): String =
+        "$" + path + "#" + interfaceNumber
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         applicationContext = flutterPluginBinding.applicationContext
@@ -79,6 +80,32 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
                     result.success(null)
                 } catch (e: Exception) {
                     result.error("CLOSE_FAILED", e.message ?: "Failed to close HID device", null)
+                }
+            }
+
+            "sendReport" -> {
+                val path = call.argument<String>("path")
+                val interfaceNumber = call.argument<Int>("interfaceNumber")
+                val reportId = call.argument<Int>("reportId") ?: 0
+                if (path == null || interfaceNumber == null) {
+                    result.error("ARGUMENT_ERROR", "Missing 'path' or 'interfaceNumber'", null)
+                    return
+                }
+                try {
+                    val raw: ByteArray? = call.argument<ByteArray>("data")
+                    val payload: ByteArray = raw ?: ByteArray(0)
+
+                    // Build buffer: first byte is reportId, followed by data bytes
+                    val buffer = ByteArray(1 + payload.size)
+                    buffer[0] = reportId.toByte()
+                    System.arraycopy(payload, 0, buffer, 1, payload.size)
+
+                    sendOutputReport(path, interfaceNumber, buffer)
+                    result.success(null)
+                } catch (e: IllegalStateException) {
+                    result.error("NOT_OPEN", e.message ?: "Device/interface is not open", null)
+                } catch (e: Exception) {
+                    result.error("SEND_FAILED", e.message ?: "Failed to send HID report", null)
                 }
             }
 
@@ -245,6 +272,67 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
         try {
             handle.connection.close()
         } catch (_: Exception) {
+        }
+    }
+
+    private fun findInterruptOutEndpoint(intf: UsbInterface): android.hardware.usb.UsbEndpoint? {
+        for (i in 0 until intf.endpointCount) {
+            val ep = intf.getEndpoint(i)
+            if (ep.type == UsbConstants.USB_ENDPOINT_XFER_INT && ep.direction == UsbConstants.USB_DIR_OUT) {
+                return ep
+            }
+        }
+        return null
+    }
+
+    private fun sendOutputReport(path: String, interfaceNumber: Int, buffer: ByteArray) {
+        val key = keyFor(path, interfaceNumber)
+        val handle = openHandles[key]
+            ?: throw IllegalStateException("Device/interface not open: $path#$interfaceNumber")
+        val timeoutMs = 1000
+
+        if (buffer.isEmpty()) {
+            throw IllegalArgumentException("Empty output report buffer: first byte must be the Report ID")
+        }
+
+        // Send over out endpoint if available
+        val outEp = findInterruptOutEndpoint(handle.intf)
+        if (outEp != null) {
+            val sent = handle.connection.bulkTransfer(outEp, buffer, buffer.size, timeoutMs)
+            if (sent < 0) {
+                throw IllegalStateException("bulkTransfer failed with code $sent")
+            }
+            if (sent != buffer.size) {
+                throw IllegalStateException("Only $sent of ${buffer.size} bytes sent")
+            }
+            return
+        }
+
+        // Send over Control Endpoint as report
+        val reportId: Int = buffer[0].toInt() and 0xFF
+        val payload: ByteArray =
+            if (buffer.size > 1) buffer.copyOfRange(1, buffer.size) else ByteArray(0)
+
+        val bmRequestType = 0x21 // Host to device | Class | Interface
+        val bRequest = 0x09      // SET_REPORT
+        val reportTypeOutput = 0x02
+        val wValue = (reportTypeOutput shl 8) or reportId
+        val wIndex = handle.intf.id
+
+        val sent = handle.connection.controlTransfer(
+            bmRequestType,
+            bRequest,
+            wValue,
+            wIndex,
+            payload,
+            payload.size,
+            timeoutMs
+        )
+        if (sent < 0) {
+            throw IllegalStateException("controlTransfer failed with code $sent")
+        }
+        if (sent != payload.size) {
+            throw IllegalStateException("Only $sent of ${payload.size} bytes sent via controlTransfer")
         }
     }
 

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:hid4flutter/hid4flutter.dart';
 
@@ -127,9 +128,75 @@ class DeviceListScreenState extends State<DeviceListScreen> {
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('${device.isOpen ? 'Failed to close' : 'Failed to open'} device: $e'),
+                    content: Text(
+                        '${device.isOpen ? 'Failed to close' : 'Failed to open'} device: $e'),
                     duration: const Duration(seconds: 3),
                   ),
+                );
+              }
+            },
+            onLongPress: () async {
+              if (!device.isOpen) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Open the device first to send data.')),
+                );
+                return;
+              }
+              final hexController = TextEditingController();
+              final reportIdController = TextEditingController(text: '00');
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) {
+                  return AlertDialog(
+                    title: const Text('Send custom HEX bytes'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: reportIdController,
+                          decoration: const InputDecoration(
+                            labelText: 'Report ID (hex, e.g. 00)',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: hexController,
+                          decoration: const InputDecoration(
+                            labelText: 'Data bytes (hex, e.g. 01 02 0A FF)',
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Send'),
+                      ),
+                    ],
+                  );
+                },
+              );
+              if (confirmed != true) return;
+              try {
+                int reportId = int.parse(
+                    reportIdController.text
+                        .replaceAll('0x', '')
+                        .replaceAll(' ', ''),
+                    radix: 16);
+
+                final bytes = _hexToBytes(hexController.text);
+                await device.sendReport(bytes, reportId: reportId);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Data sent.')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to send: $e')),
                 );
               }
             },
@@ -138,4 +205,17 @@ class DeviceListScreenState extends State<DeviceListScreen> {
       },
     );
   }
+}
+
+Uint8List _hexToBytes(String hexInput) {
+  String s = hexInput
+      .trim()
+      .replaceAll(RegExp(r'0x', caseSensitive: false), '')
+      .replaceAll(RegExp(r'[^0-9a-fA-F]'), '');
+  if (s.length % 2 != 0) s = '0$s';
+  final out = Uint8List(s.length ~/ 2);
+  for (int i = 0, j = 0; i < s.length; i += 2, j++) {
+    out[j] = int.parse(s.substring(i, i + 2), radix: 16);
+  }
+  return out;
 }
