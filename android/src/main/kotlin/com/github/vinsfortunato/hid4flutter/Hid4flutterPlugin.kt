@@ -208,7 +208,19 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
             }
         }
 
-        applicationContext.registerReceiver(receiver, IntentFilter(ACTION_USB_PERMISSION))
+        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        val receiverFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Receiver should not be exported; we only need app/system broadcasts
+            Context.RECEIVER_NOT_EXPORTED
+        } else {
+            0
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            applicationContext.registerReceiver(receiver, filter, receiverFlags)
+        } else {
+            @Suppress("DEPRECATION")
+            applicationContext.registerReceiver(receiver, filter)
+        }
 
         val flags = when {
             Build.VERSION.SDK_INT >= 31 -> PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
