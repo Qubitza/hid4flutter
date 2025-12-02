@@ -222,14 +222,13 @@ class Hid4flutterPlugin : FlutterPlugin, MethodCallHandler {
             applicationContext.registerReceiver(receiver, filter)
         }
 
-        val flags = when {
-            Build.VERSION.SDK_INT >= 31 -> PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            else -> PendingIntent.FLAG_UPDATE_CURRENT
-        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        val intent = Intent(ACTION_USB_PERMISSION).setPackage(applicationContext.packageName)
         val permissionIntent = PendingIntent.getBroadcast(
             applicationContext,
             0,
-            Intent(ACTION_USB_PERMISSION),
+            intent,
             flags
         )
 
