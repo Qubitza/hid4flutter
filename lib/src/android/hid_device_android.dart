@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:hid4flutter/src/hid_device.dart';
@@ -6,6 +6,9 @@ import 'package:hid4flutter/src/hid_exception.dart';
 import 'package:hid4flutter/src/android/hid_android.dart';
 
 class HidDeviceAndroid extends HidDevice {
+  static const Duration _inputPollTimeout = Duration(milliseconds: 250);
+  static const int _defaultInputChunkSize = 1024;
+
   HidDeviceAndroid({
     required this.id,
     required this.path,
@@ -111,12 +114,45 @@ class HidDeviceAndroid extends HidDevice {
 
   @override
   Stream<int> inputStream() {
-    throw StateError('Device is not open');
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    return (() async* {
+      while (_isOpen) {
+        try {
+          final report = await _readReportChunk(
+            _defaultInputChunkSize,
+            timeout: _inputPollTimeout,
+          );
+
+          for (final byte in report) {
+            yield byte;
+          }
+        } on TimeoutException {
+          continue;
+        } on HidException {
+          if (!_isOpen) {
+            break;
+          }
+          rethrow;
+        }
+      }
+    })();
   }
 
   @override
-  Future<Uint8List> receiveReport(int reportLength, {Duration? timeout}) {
-    throw StateError('Device is not open');
+  Future<Uint8List> receiveReport(int reportLength, {Duration? timeout}) async {
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    var result = inputStream().take(reportLength).toList();
+    if (timeout != null) {
+      result = result.timeout(timeout);
+    }
+
+    return Uint8List.fromList(await result);
   }
 
   @override
@@ -140,20 +176,104 @@ class HidDeviceAndroid extends HidDevice {
     }
   }
 
-
   @override
   Future<Uint8List> receiveFeatureReport(int reportId,
       {int bufferSize = 1024}) async {
-    throw StateError('Device is not open');
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    try {
+      return await HidAndroid.invokeMethod<Uint8List>('receiveFeatureReport', {
+            'id': id,
+            'path': path,
+            'interfaceNumber': interfaceNumber,
+            'reportId': reportId,
+            'bufferSize': bufferSize,
+          }) ??
+          Uint8List(0);
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to receive feature report';
+      throw HidException('${e.code}: $message');
+    }
   }
 
   @override
   Future<void> sendFeatureReport(Uint8List data, {int reportId = 0x00}) async {
-    throw StateError('Device is not open');
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    try {
+      await HidAndroid.invokeMethod('sendFeatureReport', {
+        'id': id,
+        'path': path,
+        'interfaceNumber': interfaceNumber,
+        'reportId': reportId,
+        'data': data,
+      });
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to send feature report';
+      throw HidException('${e.code}: $message');
+    }
   }
 
   @override
   Future<String> getIndexedString(int index, {int maxLength = 256}) async {
-    throw StateError('Device is not open');
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    try {
+      return await HidAndroid.invokeMethod<String>('getIndexedString', {
+            'id': id,
+            'path': path,
+            'interfaceNumber': interfaceNumber,
+            'index': index,
+            'maxLength': maxLength,
+          }) ??
+          '';
+    } on PlatformException catch (e) {
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to get indexed string';
+      throw HidException('${e.code}: $message');
+    }
+  }
+
+  Future<Uint8List> _readReportChunk(
+    int reportLength, {
+    Duration? timeout,
+  }) async {
+    if (!_isOpen) {
+      throw StateError('Device is not open');
+    }
+
+    try {
+      return await HidAndroid.invokeMethod<Uint8List>('receiveReport', {
+            'id': id,
+            'path': path,
+            'interfaceNumber': interfaceNumber,
+            'reportLength': reportLength,
+            'timeoutMs': timeout?.inMilliseconds,
+          }) ??
+          Uint8List(0);
+    } on PlatformException catch (e) {
+      if (e.code == 'TIMEOUT') {
+        throw TimeoutException(
+          e.message ?? 'Timed out waiting for input report',
+          timeout,
+        );
+      }
+
+      final message = e.message?.isNotEmpty == true
+          ? e.message!
+          : 'Failed to receive HID report';
+      throw HidException('${e.code}: $message');
+    }
   }
 }
